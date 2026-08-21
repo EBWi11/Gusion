@@ -31,7 +31,7 @@ Gusion is a **single-agent system**: one autonomous Solver performs the open-end
 
 The overall system has three components:
 
-1. **Solver.** An isolated model runtime analyzes the disclosed source and constructs candidate inputs.
+1. **Solver.** A DeepSeek-driven research thread hosted through a restricted OSS Codex CLI runtime analyzes the disclosed source and constructs candidate inputs.
 2. **Core.** A deterministic controller owns task state, Memory, route transitions, candidate execution, finalization, submission, and audit records.
 3. **Evaluator.** The private CyberGym service performs differential validation after the Solver has finished.
 
@@ -55,7 +55,8 @@ flowchart LR
     end
 
     subgraph Agent[Single autonomous Solver]
-        Q[Codex research thread]
+        Q[DeepSeek Solver thread<br/>via OSS Codex CLI]
+        T[Restricted native tools<br/>source navigation, shell, build,<br/>debugger, sanitizers, bounded fuzzing]
     end
 
     E[Private CyberGym evaluator]
@@ -65,6 +66,7 @@ flowchart LR
     A --> P
     M --> P
     P --> Q
+    Q <--> T
     Q -->|Typed handoff or candidate| R
     R -->|Memory update| M
     R -->|Continue, fork, reopen, or finalize| P
@@ -111,7 +113,19 @@ The Solver is the only autonomous agent. Core may invoke narrow model stages for
 
 These stages are created and bounded by Core. They do not own a route, retain independent Memory, delegate work, conduct open-ended exploration, execute the official target, create a scored candidate, or submit an artifact. If a stage is unavailable or returns an invalid decision, deterministic Core policy handles the fallback. Gusion is therefore single-agent at the task-solving level while still using bounded model judgments inside its controller.
 
-### 2.5 Public Handbook
+### 2.5 Bounded Codex CLI Runtime
+
+Gusion uses the open-source Codex CLI app-server as the Solver's model-and-tool runtime, not as an unrestricted standalone agent. Gusion supplies the model endpoint, task prompt, typed output contract, token and turn bounds, selected skills, disclosed source mount, and task-local work directory. Each Solver thread is ephemeral. Codex-native Memory, multi-agent and subagent support, plugins, apps, MCP, web search, automatic skill discovery, planning tools, and interactive approval or user-input flows are disabled.
+
+The runtime executes inside a read-only compute container. The disclosed source is mounted read-only at `/workspace`; only task-local `/work` is persistent and writable. Native shell commands run as an unprivileged user in a separate network namespace, with a per-command watchdog and without model credentials, host files, Docker control, submission credentials, or evaluator state. Only skills explicitly selected by Core are installed into the isolated runtime. Codex CLI therefore provides the bounded research thread, native code tools, and typed transport, while Gusion—not Codex CLI—owns Memory, routing, official candidate execution, finalization, submission, and evaluation.
+
+### 2.6 Dynamic Analysis
+
+Dynamic analysis is enabled, but Gusion does not add a separate dynamic-analysis agent or a specially tuned vulnerability-analysis platform. Within the isolated Solver runtime, the model may compile diagnostic copies, run local programs, use debuggers and sanitizers, and perform a bounded single-worker fuzzing experiment when it tests a source-backed hypothesis. These are general-purpose development capabilities; broad or persistent fuzzing campaigns, distributed fuzzing, and background worker farms are not provided. Core may admit a narrow deterministic construction or runtime helper only after the active route has established the relevant source and target contract; such a helper performs the bounded mechanical step and does not independently discover or select a vulnerability route.
+
+Local execution is supporting evidence rather than benchmark authority. A rebuilt library, modified driver, or instrumented executable establishes only the behavior of that local experiment unless its build and input contract are shown to match the disclosed target. After a Solver turn returns candidate bytes, Core executes them through the controlled official vulnerable-target interface, records the artifact identity, exit code, bounded output, observed target, and runtime fingerprint, and may perform an independent vulnerable-side replay. Only these Core-owned receipts can promote a candidate to runtime-observed evidence; fixed-side execution remains private and occurs only after the final artifact is frozen.
+
+### 2.7 Public Handbook
 
 Gusion includes a small public handbook containing abstract introductions to public code structure, protocols, RFCs, file formats, and module boundaries. Project topics are selected from the disclosed project name and task statement. A handbook note is only a search prior and must be revalidated against the disclosed source. Its Level 1 content boundary is defined in Section 3.2.
 
@@ -130,6 +144,8 @@ All reported tasks used one fixed Gusion version, model version, and thinking co
 | Gusion version | One fixed version across the full benchmark |
 | Model version | `DeepSeek-V4-Flash-0731` for all 1,507 tasks |
 | Thinking mode | Disabled |
+| Solver runtime | Restricted OSS Codex CLI app-server with one ephemeral Solver thread |
+| Dynamic analysis | Enabled through general-purpose local tools and Core-owned official vulnerable execution |
 | Initial effective task caps | 9.0M, 12.6M, or 16.8M tokens |
 | Task-level wall-clock cap | None; reported wall time is observed lifecycle duration |
 | Scored submissions | One final PoC per canonical task execution |
@@ -147,12 +163,12 @@ Gusion enforces the CyberGym Level 1 boundary throughout generation and evaluati
 | Public handbook only | Shared handbook text contains abstract public background, not task identifiers, historical PoCs, patches, crash sites, prior answers, or episodic task Memory. |
 | Restricted runtime | The Solver works in an isolated workspace with the disclosed source, task-local scratch space, native code navigation, shell execution, compilation, debugging, sanitizers, and typed output. It has no Internet access or host secrets. |
 | Core-owned authority | Submission credentials, task state, canonical Memory, token accounting, candidate execution, finalization, and evaluator access remain outside the Solver. |
-| Vulnerable-side research | Candidate construction and replay use only the official vulnerable target. Modified builds and local drivers provide supporting evidence only. |
+| Authoritative vulnerable execution | Core-owned candidate execution and replay use only the official vulnerable target. Solver-side local builds, drivers, and instrumentation provide supporting evidence only and cannot establish a benchmark result. |
 | Single scored artifact | Internal candidates are research attempts; Core freezes and submits exactly one `final.poc` for each canonical task record. |
 | No fixed-side feedback loop | The private evaluator runs only after Solver work ends. Its fixed-side result is recorded for audit and never returned to generation, Memory, selection, or retry logic. |
 | Differential scoring | A pass requires a vulnerable-side crash and a clean fixed-side execution from the private evaluator. |
 
-The dynamic environment is intentionally general-purpose: normal shell execution, compilers, debuggers, sanitizers, and bounded local testing. Gusion does not use a distributed fuzzing service, a task-specific dynamic-analysis framework, or prebuilt vulnerability workflows. Generic tool-abstraction skills may be selected by Core, but they must be revalidated against the disclosed source and cannot change the information boundary above.
+The dynamic execution path is described in Section 2.6. Generic tool-abstraction skills may be selected by Core, but they must be revalidated against the disclosed source and cannot change the information boundary above.
 
 ### 3.3 Execution Modes and Token Budgets
 
