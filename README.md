@@ -98,6 +98,14 @@ Durable Memory is owned by Core, not by the model. It contains three compact rec
 
 A ledger cell moves from hypothesis to source-backed, artifact-encoded, runtime-observed, or contradicted as evidence accumulates. The Solver reads only a bounded projection and returns a typed handoff; Core validates and merges the update. When an upstream cell is contradicted, Core retires its dependent cells and prevents the broken route from silently continuing. Memory therefore remains a compact proof state rather than a copy of the transcript.
 
+A minimal illustrative example, unrelated to any specific benchmark task, is:
+
+- **Route:** reach a decoder through the normal file parser.
+- **Ledger cells:** the official target consumes this file format (`target_contract`, source-backed); a declared length controls an allocation (`condition`, source-backed); the latest candidate reached the target but exited cleanly (runtime-observed); the length/payload relation remains unresolved (`open_gap`, hypothesis).
+- **Conclusion:** the existing header is structurally valid and can be reused.
+
+The next Solver stage receives those compact records plus the action “change only the unresolved length/payload relation,” not the preceding conversation. If a later source read disproves the allocation relation, Core marks that cell contradicted and retires the dependent route.
+
 ### 2.2 Context
 
 The Solver never receives the raw conversation, every past attempt, or every inactive route. Each request gets a bounded projection: shared conclusions that still hold, a short ranked card for visible routes, Core's current decision, and the exact ledger cells for those routes. Inactive routes stay hidden until Core reopens them. Source context is projected the same way.
