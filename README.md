@@ -90,9 +90,13 @@ Most of Gusion's agent-level optimization focuses on three areas: typed task-loc
 
 ### 2.1 Memory
 
-Durable Memory is owned by Core, not by the model. The Solver reads a projection of the current task but has no ledger-write tool. Each active route holds a compact typed ledger rather than a growing note pile. Its cells cover the target contract, sink, call edge, condition, state transition, construction constraint, runtime checkpoint, and the single open gap that still blocks a trustworthy artifact. A route keeps only a small number of cells, so Memory remains a proof sketch rather than a second transcript.
+Durable Memory is owned by Core, not by the model. It contains three compact record types:
 
-Every cell has an evidence status: hypothesis, source-backed, encoded in the current artifact, observed on the official vulnerable target, or contradicted. Derived cells name their immediate upstream dependencies. When an upstream claim is contradicted, its dependents are retired with it. A structural contradiction also blocks terminal emission and forces the controller to fork or start a new root rather than resume a broken story. That is what lets the system keep a working object graph or a multi-condition lifecycle proof while revising one unresolved edge, as in the two cases in Section 4.6.
+- **Routes** represent alternative investigation paths and their lifecycle state.
+- **Ledger cells** record typed evidence about the target contract, call edge, sink, required condition, state transition, construction constraint, runtime checkpoint, or current open gap.
+- **Conclusions** retain stable task-level facts that remain useful across route changes.
+
+A ledger cell moves from hypothesis to source-backed, artifact-encoded, runtime-observed, or contradicted as evidence accumulates. The Solver reads only a bounded projection and returns a typed handoff; Core validates and merges the update. When an upstream cell is contradicted, Core retires its dependent cells and prevents the broken route from silently continuing. Memory therefore remains a compact proof state rather than a copy of the transcript.
 
 ### 2.2 Context
 
@@ -301,17 +305,9 @@ Every terminal task retained a non-empty typed Memory snapshot. The figures belo
 | Retained conclusions per task | 7.82 | 7 | 12 | 71 |
 | Ledger cells per route | 6.65 | 8 | 11 | 11 |
 
-The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Not-passed tasks retained more unresolved state: 35.65 ledger cells and 4.04 routes on average, compared with 14.82 cells and 2.42 routes for passed tasks.
+The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Not-passed tasks averaged 35.65 ledger cells and 4.04 routes, compared with 14.82 cells and 2.42 routes for passed tasks.
 
-| Final ledger status | Cells | Share |
-| --- | ---: | ---: |
-| Hypothesis | 6,915 | 26.28% |
-| Source-backed | 10,217 | 38.83% |
-| Artifact encoded | 514 | 1.95% |
-| Runtime observed | 7,721 | 29.35% |
-| Contradicted | 943 | 3.58% |
-
-Memory recovery remained exceptional rather than continuous: 251 tasks (16.66%) invoked the bounded reviewer, producing 308 review events; 57 tasks (3.78%) used the second permitted review. Recovery reviews accounted for 2,758 LLM calls (0.87% of all calls) and 97.21M tokens (0.86% of all Core-accounted tokens).
+Memory recovery remained exceptional rather than continuous: 251 tasks (16.66%) invoked the bounded reviewer, and 57 tasks (3.78%) used the second permitted review.
 
 ### 4.6 Representative Cases
 
