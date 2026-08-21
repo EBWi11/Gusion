@@ -93,7 +93,7 @@ Most of Gusion's agent-level optimization focuses on three areas: typed task-loc
 Durable Memory is owned by Core, not by the model. It contains three compact record types:
 
 - **Routes** represent alternative investigation paths and their lifecycle state.
-- **Ledger cells** record typed evidence about the target contract, call edge, sink, required condition, state transition, construction constraint, runtime checkpoint, or current open gap.
+- **Ledger cells** record typed evidence about the target contract, call edge, sink, required condition, state transition, construction constraint, latest runtime observation, or current open gap.
 - **Conclusions** retain stable task-level facts that remain useful across route changes.
 
 A ledger cell moves from hypothesis to source-backed, artifact-encoded, runtime-observed, or contradicted as evidence accumulates. The Solver reads only a bounded projection and returns a typed handoff; Core validates and merges the update. When an upstream cell is contradicted, Core retires its dependent cells and prevents the broken route from silently continuing. Memory therefore remains a compact proof state rather than a copy of the transcript.
@@ -102,17 +102,17 @@ A ledger cell moves from hypothesis to source-backed, artifact-encoded, runtime-
 
 The Solver never receives the raw conversation, every past attempt, or every inactive route. Each request gets a bounded projection: shared conclusions that still hold, a short ranked card for visible routes, Core's current decision, and the exact ledger cells for those routes. Inactive routes stay hidden until Core reopens them. Source context is projected the same way.
 
-Long trajectories are therefore compressed by dropping what is no longer decision-relevant, not by asking the model to summarize itself. A resumed request keeps the retained route, the proven constraints, the known contradictions, the deepest runtime checkpoint, and the next unresolved action. The aim is to preserve enough state to continue construction and debugging after a context reset, without paying for the full history or letting a stale hypothesis re-enter through leftover chat text.
+Long trajectories are therefore compressed by dropping what is no longer decision-relevant, not by asking the model to summarize itself. A subsequent Solver request receives the retained route, proven constraints, known contradictions, latest runtime observation, and next unresolved action. This preserves continuity between stages of the same live task without retaining the full history or letting a stale hypothesis re-enter through leftover chat text.
 
 ### 2.3 State Control
 
-A deterministic state machine chooses whether to continue, fork, reopen, or start a route, then decides when to compare candidates or finalize. These transitions consume no model call and prevent a contradicted route from being silently resumed.
+A deterministic state machine chooses whether to continue, fork, reopen, or start a route, then decides when to compare candidates or finalize. These transitions consume no model call and prevent a contradicted route from being silently continued.
 
 ### 2.4 Bounded Core Model Stages
 
 The Solver is the only autonomous agent. Core may invoke narrow model stages for decisions that benefit from semantic comparison but do not constitute a second solving loop. The two most visible examples are:
 
-- a bounded Memory reviewer, invoked no more than twice at successive recovery boundaries, limited to checking retained evidence and recommending resume, stop, or restart; and
+- a bounded Memory reviewer, invoked no more than twice at successive budget boundaries, limited to checking retained evidence and recommending continue, stop, or replace-route; and
 - a final selector that compares two already-executed crashing candidates and returns one typed choice.
 
 These stages are created and bounded by Core. They do not own a route, retain independent Memory, delegate work, conduct open-ended exploration, execute the official target, create a scored candidate, or submit an artifact. If a stage is unavailable or returns an invalid decision, deterministic Core policy handles the fallback. Gusion is therefore single-agent at the task-solving level while still using bounded model judgments inside its controller.
@@ -163,7 +163,7 @@ Gusion enforces the CyberGym Level 1 boundary throughout generation and evaluati
 | Level 1 inputs only | The Solver receives only the unpatched source snapshot, public vulnerability description, and the controlled vulnerable-side task interface. |
 | No higher-level disclosure | Reference PoCs, higher-level sanitizer reports, patches, fixed source, fixed binaries, and fixed-side results are unavailable to the Solver. |
 | One autonomous agent | Each task has one Solver. Codex subagents, delegation, automatic skill discovery, autonomous planning tools, MCP servers, and web tools are unavailable. |
-| Independent tasks | Every task starts with fresh state. Memory, routes, candidates, and runtime observations are never imported from another task. |
+| Independent tasks | Every task starts with fresh state. Memory, routes, candidates, and runtime observations are never imported from another task or an earlier task execution. |
 | Public handbook only | Shared handbook text contains abstract public background, not task identifiers, historical PoCs, patches, crash sites, prior answers, or episodic task Memory. |
 | Restricted runtime | The Solver works in an isolated workspace with the disclosed source, task-local scratch space, native code navigation, shell execution, compilation, debugging, sanitizers, and typed output. It has no Internet access or host secrets. |
 | Core-owned authority | Submission credentials, task state, canonical Memory, token accounting, candidate execution, finalization, and evaluator access remain outside the Solver. |
@@ -188,7 +188,7 @@ Mode assignment was operational rather than task-adaptive. `competition` was the
 
 Both modes disable cross-run PoC caching and follow the same Level 1 information boundary. `fast-competition` uses the smaller budget and a smaller final-selection reserve. `competition` allows longer investigation and keeps a larger reserve for comparing candidates.
 
-These are initial caps, not absolute lifetime maxima. Recovery is considered only when the same canonical execution reaches its current cap without a trustworthy vulnerable-side crash, retains an active route, and has enough reserved budget for both a bounded Memory review and a fresh Solver stage. Each granted extension adds up to 60% of the assigned initial cap. The first recovery may continue on a `resume` decision, or on a fail-closed `blocked` review when enough budget remains for one fresh Solver stage. A second review is admitted only when the first produced a source-backed `resume`, a concrete next step, and applied ledger updates, and the task still has no trustworthy crash. No task receives more than two reviews. Recovery resumes the existing task checkpoint in a fresh Solver context; it is not a second task attempt or a rerun. It occurs before artifact freeze and private evaluation, so evaluator and fixed-side results cannot influence the trigger.
+These are initial caps, not absolute lifetime maxima. When the same canonical execution reaches its current cap without a trustworthy vulnerable-side crash, Core may perform a budget-bound Memory review if the live task still has an active route and enough reserved budget for another Solver stage. Each approved continuation adds up to 60% of the assigned initial cap. A second review is admitted only when the first produced a source-backed continuation, a concrete next step, and applied ledger updates, and the task still has no trustworthy crash. No task receives more than two reviews. Continuation uses a new ephemeral Solver context but remains inside the same live canonical execution and current task-local Memory; it is not a task restart, second attempt, or rerun. The review occurs before artifact freeze and private evaluation, so evaluator and fixed-side results cannot influence it.
 
 These mode groups are reported only as the workload mix. Their task distributions differ, so they should not be interpreted as a controlled model ablation.
 
@@ -206,11 +206,11 @@ The first candidate remains the fallback if the second search does not produce a
 
 Candidate crashes are summarized as bounded runtime fingerprints containing the sanitizer family, fault class, and a small number of project frames. Repeating a fingerprint demonstrates stability but does not create a second independent task identity; a different fingerprint is useful only when its source-backed path still matches the public claim. Research executions use non-scored identities, while the evaluator receives only the final artifact under the scored trial identity.
 
-### 3.5 Checkpointing and Auditability
+### 3.5 Task-Local State and Auditability
 
-Long tasks persist a compact checkpoint before expensive builds, validations, and context transitions. A resumed Solver receives the retained route, proven constraints, contradictions, deepest runtime checkpoint, and next unresolved action rather than the full raw transcript. This supports recovery without turning prior task executions into cross-task Memory.
+During a live task, Core maintains the current task-local Memory and candidate records between successive Solver stages. Each subsequent Solver context receives only the current route projection, proven constraints, contradictions, latest runtime observation, and next unresolved action rather than the full raw transcript. This continuity exists only inside one live canonical execution; every reported task began from fresh state.
 
-If the normal search budget ends without a crash, Core may run a bounded review of the task-local evidence and resume the same Solver in a fresh context. The review cannot emit a PoC or edit authoritative runtime facts; it can only identify a contradicted route, an unresolved prerequisite, or a concrete next action. This prevents a longer budget from merely repeating the same search.
+At a budget boundary, Core may run the bounded review described in Section 3.3 and continue the same live task in a new ephemeral Solver context. The review cannot emit a PoC or edit authoritative runtime facts; it can only identify a contradicted route, an unresolved prerequisite, or a concrete next action. This prevents a longer budget from merely repeating the same search.
 
 Each canonical task also produces a deterministic audit bundle containing task state, task-local Memory, candidate artifacts, the frozen final PoC, redacted stage events, and the private evaluator record when available. The bundle records the source snapshot and protocol revision, hashes every included file, and has its own SHA-256 sidecar. Fixed-side evidence is stored for audit only and is never projected back into Solver context.
 
@@ -307,7 +307,7 @@ Every terminal task retained a non-empty typed Memory snapshot. The figures belo
 
 The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Not-passed tasks averaged 35.65 ledger cells and 4.04 routes, compared with 14.82 cells and 2.42 routes for passed tasks.
 
-Memory recovery remained exceptional rather than continuous: 251 tasks (16.66%) invoked the bounded reviewer, and 57 tasks (3.78%) used the second permitted review.
+Budget-bound Memory review was used by 251 tasks (16.66%); 57 tasks (3.78%) used the second permitted review.
 
 ### 4.6 Representative Cases
 
@@ -366,7 +366,7 @@ The first crash established the cleanup sink. Later candidates reached the same 
 **Highlights**
 
 - Solves a lifecycle bug rather than a parser or decoder crash.
-- Recovers from explicit safe-path rejections instead of restarting the task.
+- Revises the current task-local route after explicit safe-path rejections.
 - Keeps a multi-condition proof across context boundaries in one Solver.
 - Completed in 156 minutes with 13.72M Core-accounted tokens and passed differential validation.
 
@@ -380,7 +380,7 @@ The result supports three observations:
 
 ### 5.1 Limitations
 
-- Tasks ran under three documented initial token caps, and some could receive bounded recovery extensions; the budget groups are not a controlled comparison.
+- Tasks ran under three documented initial token caps, and some received bounded same-execution budget extensions; the budget groups are not a controlled comparison.
 - No matched ablation isolates the individual contribution of task Memory, context projection, the handbook, or second-PoC selection.
 - Each task contributes one canonical outcome; repeated matched runs were not used to estimate stochastic variance.
 - The handbook provides public domain background, so the result should be interpreted as an agent-system evaluation rather than a model-only measurement.
