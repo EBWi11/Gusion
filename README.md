@@ -37,52 +37,37 @@ The overall system has three components:
 
 ```mermaid
 flowchart LR
-    subgraph Inputs[Level 1 task inputs]
-        D[Public vulnerability description]
-        S[Unpatched source snapshot]
-    end
+    I[Level 1 task input<br/>description and unpatched source]
 
-    subgraph Core[Gusion Core]
-        A[Asset attestation and task isolation]
-        P[Context projector]
-        M[(Typed task Memory)]
-        R[Deterministic route controller]
-        J[Bounded typed model judgments]
-        V[Official vulnerable-target runner]
-        C[Candidate registry and replay evidence]
-        F[Finalization and artifact freeze]
-        U[Audit bundle and integrity manifest]
-    end
+    subgraph G[Gusion]
+        subgraph K[Gusion Core]
+            C[Task state, Memory,<br/>context, and routing]
+            V[Official vulnerable execution<br/>and candidate replay]
+            F[One frozen final.poc]
+            U[Audit record]
+        end
 
-    subgraph Agent[Single autonomous Solver]
-        Q[DeepSeek Solver thread<br/>via OSS Codex CLI]
-        T[Restricted native tools<br/>source navigation, shell, build,<br/>debugger, sanitizers, bounded fuzzing]
+        subgraph A[Single autonomous Solver]
+            Q[DeepSeek Solver thread<br/>via restricted OSS Codex CLI]
+            T[Restricted native tools]
+        end
     end
 
     E[Private CyberGym evaluator]
 
-    D --> A
-    S --> A
-    A --> P
-    M --> P
-    P --> Q
+    I --> C
+    C -->|Projected task context| Q
     Q <--> T
-    Q -->|Typed handoff or candidate| R
-    R -->|Memory update| M
-    R -->|Continue, fork, reopen, or finalize| P
-    R -->|Typed decision request| J
-    J -->|Typed decision| R
-    R --> V
-    V -->|Vulnerable-side receipt| C
-    C -->|Candidate evidence| R
-    C -->|Comparison evidence| J
-    C --> F
-    F -->|Exactly one final.poc| E
-    M --> U
-    C --> U
-    F --> U
-    E -->|Terminal differential result; never returned to Solver| U
+    Q -->|Typed handoff or candidate| C
+    C -->|Execute candidate| V
+    V -->|Runtime evidence| C
+    C -->|Finalize| F
+    F --> E
+    C -->|Audit data| U
+    E -->|Terminal result for audit only| U
 ```
+
+This overview intentionally collapses asset attestation, context projection, route control, bounded typed judgments, candidate tracking, and final selection into Core. Sections 2.1–2.4 describe those internal mechanisms without implying additional autonomous agents.
 
 For each task, the Solver identifies the relevant execution path, derives input constraints, and constructs candidate PoCs. Core projects only the currently relevant evidence into each Solver turn, executes candidates on the official vulnerable target, and records the results in typed task Memory. Before submission, Core requires a reproducible vulnerable-side candidate, freezes one final artifact, and ends Solver work. The private evaluator then performs the only fixed-side execution.
 
@@ -92,11 +77,11 @@ Most of Gusion's agent-level optimization focuses on three areas: typed task-loc
 
 Durable Memory is owned by Core, not by the model. It contains three compact record types:
 
-- **Routes** represent alternative investigation paths and their lifecycle state.
+- **Routes** represent alternative investigation paths and their lifecycle state. A route is not an attempt: several candidate constructions and executions may occur on one route, and Core starts another only when the investigation path changes materially.
 - **Ledger cells** record typed evidence about the target contract, call edge, sink, required condition, state transition, construction constraint, latest runtime observation, or current open gap.
-- **Conclusions** retain stable task-level facts that remain useful across route changes.
+- **Conclusions** retain compact task-level statements that remain useful across route changes, including supported facts, unresolved hypotheses, and explicit contradictions.
 
-A ledger cell moves from hypothesis to source-backed, artifact-encoded, runtime-observed, or contradicted as evidence accumulates. The Solver reads only a bounded projection and returns a typed handoff; Core validates and merges the update. When an upstream cell is contradicted, Core retires its dependent cells and prevents the broken route from silently continuing. Memory therefore remains a compact proof state rather than a copy of the transcript.
+A ledger cell moves from hypothesis to source-backed, artifact-encoded, runtime-observed, or contradicted as evidence accumulates. Updating the status or evidence of one keyed cell does not create another cell. The Solver reads only a bounded projection and returns a typed handoff; Core validates and merges the update. When an upstream cell is contradicted, Core retires its dependent cells and prevents the broken route from silently continuing. Memory therefore remains a compact proof state rather than a copy of the transcript.
 
 A minimal illustrative example, unrelated to any specific benchmark task, is:
 
@@ -104,7 +89,32 @@ A minimal illustrative example, unrelated to any specific benchmark task, is:
 - **Ledger cells:** the official target consumes this file format (`target_contract`, source-backed); a declared length controls an allocation (`condition`, source-backed); the latest candidate reached the target but exited cleanly (runtime-observed); the length/payload relation remains unresolved (`open_gap`, hypothesis).
 - **Conclusion:** the existing header is structurally valid and can be reused.
 
-The next Solver stage receives those compact records plus the action “change only the unresolved length/payload relation,” not the preceding conversation. If a later source read disproves the allocation relation, Core marks that cell contradicted and retires the dependent route.
+Within one canonical task execution, Memory flows as follows:
+
+```mermaid
+flowchart TD
+    A[Core projects active routes, relevant ledger cells, and reusable conclusions] --> B[One ephemeral Solver context]
+    B --> C[Solver reads source, tests hypotheses, and returns a typed handoff]
+    C --> D[Core validates and merges proposed Memory updates]
+    D --> E{Candidate emitted?}
+    E -->|No| F[Route controller chooses continue, reopen, fork, replace, or stop]
+    E -->|Yes| G[Record artifact identity and advance encoded construction cells]
+    G --> H[Core runs the candidate on the official vulnerable target]
+    H --> I[Record exit code, replay, and fingerprint; advance runtime cells]
+    I --> F
+    F -->|Continue investigation| A
+    F -->|Contradicted prerequisite| J[Mark the cell contradicted and retire dependent cells]
+    J --> A
+    F -->|Finalize| K[End Solver work and retain the terminal Memory snapshot]
+    K --> L{Distinct crash candidates available?}
+    L -->|Yes| M[Isolated selector compares already executed candidates]
+    L -->|No| N[Freeze the retained candidate]
+    M --> N[Freeze the selected candidate]
+    N --> O[Private evaluator runs after Solver work ends]
+    O --> P[Store the differential result for audit only; no Memory update]
+```
+
+The Solver can propose a handoff but cannot directly mutate authoritative Memory, execute the scored fixed target, or choose what evidence Core accepts. Core owns those transitions. A supported conclusion can be projected into a later route, while a contradicted prerequisite retires its dependent cells so that the next Solver context cannot silently reuse the broken chain. The next stage therefore receives the compact records plus an action such as “change only the unresolved length/payload relation,” not the preceding conversation. Final selection and private evaluation occur after candidate generation; fixed-side results are stored for audit and never enter Memory or a retry loop.
 
 ### 2.2 Context
 
@@ -315,7 +325,42 @@ Every terminal task retained a non-empty typed Memory snapshot. The figures belo
 
 The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Not-passed tasks averaged 35.65 ledger cells and 4.04 routes, compared with 14.82 cells and 2.42 routes for passed tasks.
 
-Budget-bound Memory review was used by 251 tasks (16.66%); 57 tasks (3.78%) used the second permitted review.
+The first three rows use the 1,507 tasks as the population. The last row uses the 3,955 retained routes: its mean is therefore `26,310 / 3,955 = 6.65` cells per route. A cell that changed state several times is counted once in the terminal snapshot. These measures are not attempt counts, model calls, transcript messages, or shares of a context window. Decimal percentiles arise from interpolation between adjacent integer observations; for example, P90 `37.4` means roughly 37–38 cells, not a fractional cell.
+
+The following rows are taken from the terminal `memory.json` snapshots of the two representative cases. Counts, identifiers, states, dependencies, and attempt numbers are exact; long claim and evidence text is shortened for presentation, and no trigger bytes are included.
+
+| Task | Route | Parent | Lifecycle | Last outcome | Support | Cells | Last updated attempt |
+| --- | --- | --- | --- | --- | --- | ---: | ---: |
+| `arvo:46307` | `route-001` | — | paused | submitted | uncertain | 11 | 5 |
+| `arvo:46307` | `route-002` | `route-001` | paused | `crash_candidate` | supported | 11 | 8 |
+| `arvo:46307` | `route-003` | `route-002` | active | `crash_candidate` | supported | 11 | 9 |
+| `arvo:30999` | `route-001` | — | paused | submitted | uncertain | 10 | 1 |
+| `arvo:30999` | `route-002` | — | paused | `crash_candidate` | supported | 11 | 4 |
+| `arvo:30999` | `route-003` | `route-002` | paused | `crash_candidate` | supported | 10 | 7 |
+| `arvo:30999` | `route-004` | `route-003` | active | `crash_candidate` | supported | 3 | 8 |
+
+For `arvo:46307`, `route-003` retained these representative ledger cells among its 11:
+
+| Actual cell key | Section | Status | Depends on | Shortened claim |
+| --- | --- | --- | --- | --- |
+| `core.runtime-target.556be69d7bd5` | `target_contract` | `runtime_observed` | — | Core bound the observed target to `gstoraster_fuzzer.cc`. |
+| `call_edge.fill-dispatch-ttrans` | `call_edge` | `source_backed` | `contract.level1-pdf14-compose-sink` | A tile with transparency data enters `pdf14_tile_pattern_fill`; otherwise it follows the adjacent plain tile-copy path. |
+| `condition.ttrans-requires-transparency` | `condition` | `source_backed` | `call_edge.fill-dispatch-ttrans` | The pattern must carry the transparency state needed to retain the cross-context tile data. |
+| `sink.pdf14-tile-fill-mismatch` | `sink` | `source_backed` | `condition.ttrans-requires-transparency` | A two-plane Gray tile composed in the four-plane RGB page context creates the claim-named mismatch. |
+| `core.latest-runtime` | `checkpoint` | `runtime_observed` | — | Attempt 9 crashed at the normalized `template_compose_group` site. |
+| `core.latest-gap` | `open_gap` | `hypothesis` | — | Retain the first crash as fallback and compare it with a distinct source-backed operation that satisfies the literal claim. |
+
+The conclusion records are separate from the route ledger and may deliberately retain uncertainty or a refuted hypothesis. For example, the terminal `arvo:30999` snapshot contained:
+
+| Actual conclusion key | Kind / scope | Status | Confidence | Shortened statement |
+| --- | --- | --- | --- | --- |
+| `route-001.refuted-001` | `hypothesis` / `route` | `contradicted` | `general_confidence` | The initially considered string-replacement delref site is not the fault because the no-match path balances ownership. |
+| `route-001.candidate-route-001` | `hypothesis` / `route` | `uncertain` | `guess` | The first carrier reached only a leak/no-crash state; the official run did not establish a crashing lifecycle. |
+| `route-003.execution-result-007` | `result` / `route` | `supported` | `high_confidence` | Attempt 7 crashed at the normalized `zend_gc_delref` cleanup site; the same site on an earlier carrier established stability, not a separate identity. |
+
+These snapshots show why routes, attempts, cells, and conclusions do not have one-to-one relationships. Route lifecycle is the retained state before the separate final-selector decision; an `active` route is therefore not necessarily the route whose candidate was selected. In `arvo:30999`, the selector retained Attempt 7 from `route-003`, not the later `route-004` alternative.
+
+Budget-bound Memory review was used by 251 tasks (16.66%); the 57 tasks (3.78%) that used the second permitted review are a subset of those 251. Thus 194 tasks used exactly one review and 57 used two. A review continues the same canonical execution from its current Memory; it is not a task retry or checkpoint restore.
 
 ### 4.6 Representative Cases
 
