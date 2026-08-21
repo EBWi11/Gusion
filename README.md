@@ -353,13 +353,13 @@ The run used 9 attempts, 3 routes, and 33 ledger cells. Two candidates crashed w
 
 #### Case B: `arvo:30999` — Lifecycle Conjunction under Allocation Failure
 
-This PHP task required a reference-count error that appears only after an allocation fails: a decrement happens before the replacement object is created, and the under-counted value must still have more than one live holder. A single failing allocation was not enough. Early carriers produced a leak or a clean exit because the second holder was missing.
+This PHP task required a reference-count error that appears only after an allocation fails: a decrement happens before the replacement object is created, and the under-counted value must still have more than one live holder. A single failing allocation was not enough. The first route produced only a leak/no-crash outcome because the decremented object had no second live holder.
 
 ```mermaid
 flowchart TD
     A[Level 1 description and vulnerable source] --> B[Bind php-fuzz-execute]
     B --> C[Trace the delref-before-allocation order]
-    C --> D[First carriers: one holder only]
+    C --> D[First route: no second live holder]
     D --> E[Safe or clean: leak, no official crash]
     E --> F[Memory records the missing conjunction]
     F --> G[Add a second live holder and force the failing allocation]
