@@ -92,7 +92,7 @@ Most of Gusion's agent-level optimization focuses on three areas: typed task-loc
 
 Durable Memory is owned by Core, not by the model. The Solver reads a projection of the current task but has no ledger-write tool. Each active route holds a compact typed ledger rather than a growing note pile. Its cells cover the target contract, sink, call edge, condition, state transition, construction constraint, runtime checkpoint, and the single open gap that still blocks a trustworthy artifact. A route keeps only a small number of cells, so Memory remains a proof sketch rather than a second transcript.
 
-Every cell has an evidence status: hypothesis, source-backed, encoded in the current artifact, observed on the official vulnerable target, or contradicted. Derived cells name their immediate upstream dependencies. When an upstream claim is contradicted, its dependents are retired with it. A structural contradiction also blocks terminal emission and forces the controller to fork or start a new root rather than resume a broken story. That is what lets the system keep a working object graph or a multi-condition lifecycle proof while revising one unresolved edge, as in the two cases in Section 4.5.
+Every cell has an evidence status: hypothesis, source-backed, encoded in the current artifact, observed on the official vulnerable target, or contradicted. Derived cells name their immediate upstream dependencies. When an upstream claim is contradicted, its dependents are retired with it. A structural contradiction also blocks terminal emission and forces the controller to fork or start a new root rather than resume a broken story. That is what lets the system keep a working object graph or a multi-condition lifecycle proof while revising one unresolved edge, as in the two cases in Section 4.6.
 
 ### 2.2 Context
 
@@ -108,7 +108,7 @@ A deterministic state machine chooses whether to continue, fork, reopen, or star
 
 The Solver is the only autonomous agent. Core may invoke narrow model stages for decisions that benefit from semantic comparison but do not constitute a second solving loop. The two most visible examples are:
 
-- a one-time Memory review at the original token boundary, limited to checking retained evidence and recommending resume, stop, or restart; and
+- a bounded Memory reviewer, invoked no more than twice at successive recovery boundaries, limited to checking retained evidence and recommending resume, stop, or restart; and
 - a final selector that compares two already-executed crashing candidates and returns one typed choice.
 
 These stages are created and bounded by Core. They do not own a route, retain independent Memory, delegate work, conduct open-ended exploration, execute the official target, create a scored candidate, or submit an artifact. If a stage is unavailable or returns an invalid decision, deterministic Core policy handles the fallback. Gusion is therefore single-agent at the task-solving level while still using bounded model judgments inside its controller.
@@ -184,7 +184,7 @@ Mode assignment was operational rather than task-adaptive. `competition` was the
 
 Both modes disable cross-run PoC caching and follow the same Level 1 information boundary. `fast-competition` uses the smaller budget and a smaller final-selection reserve. `competition` allows longer investigation and keeps a larger reserve for comparing candidates.
 
-These are initial caps, not absolute lifetime maxima. A bounded recovery extension can be triggered only when the same canonical execution reaches its assigned initial cap without a trustworthy vulnerable-side crash and a one-time review of its task-local Memory identifies a concrete continuation. The extension resumes that task from its existing checkpoint in a fresh Solver context; it is not a second task attempt or a rerun. It occurs before artifact freeze and private evaluation, so evaluator and fixed-side results cannot influence the trigger. If the review finds no actionable continuation, the task ends without an extension. This is why a small number of canonical executions report more tokens than their initial cap.
+These are initial caps, not absolute lifetime maxima. Recovery is considered only when the same canonical execution reaches its current cap without a trustworthy vulnerable-side crash, retains an active route, and has enough reserved budget for both a bounded Memory review and a fresh Solver stage. Each granted extension adds up to 60% of the assigned initial cap. The first recovery may continue on a `resume` decision, or on a fail-closed `blocked` review when enough budget remains for one fresh Solver stage. A second review is admitted only when the first produced a source-backed `resume`, a concrete next step, and applied ledger updates, and the task still has no trustworthy crash. No task receives more than two reviews. Recovery resumes the existing task checkpoint in a fresh Solver context; it is not a second task attempt or a rerun. It occurs before artifact freeze and private evaluation, so evaluator and fixed-side results cannot influence the trigger.
 
 These mode groups are reported only as the workload mix. Their task distributions differ, so they should not be interpreted as a controlled model ablation.
 
@@ -271,6 +271,8 @@ Gusion imposed no task-level wall-clock cap. The wall-time figures below are obs
 | Median observed wall time | 40 min | 34 min | 201 min |
 | Mean Core-accounted tokens | 7.51M | 5.92M | 18.45M |
 | Median Core-accounted tokens | 4.82M | 4.12M | 16.43M |
+| Mean Core-accounted LLM calls | 209.23 | 164.45 | 517.76 |
+| Median Core-accounted LLM calls | 131 | 117 | 439 |
 | Mean vulnerable-side candidates | 3.11 | 2.84 | 4.98 |
 | Median vulnerable-side candidates | 2 | 2 | 3 |
 
@@ -282,9 +284,36 @@ Gusion imposed no task-level wall-clock cap. The wall-time figures below are obs
 | --- | ---: | ---: | ---: | ---: | ---: |
 | All 1,507 tasks | 2.83M | 4.82M | 9.57M | 16.62M | 7.51M |
 
-Across all tasks, the summed observed lifecycle time was 1,887.68 hours, and Core accounted for **11,315,520,754 tokens**. Successful tasks tended to converge earlier, whereas unsuccessful tasks consumed roughly 4.2 times as much elapsed time and 3.1 times as many tokens on average. These are descriptive measurements of completed task lifecycles, not configured wall-time limits.
+| Core-accounted LLM calls | P25 | Median | P75 | P90 | Mean | Maximum |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 1,507 tasks | 79 | 131 | 251.5 | 462.8 | 209.23 | 1,627 |
 
-### 4.5 Representative Cases
+Across all tasks, the summed observed lifecycle time was 1,887.68 hours, Core accounted for **11,315,520,754 tokens**, and the model completed **315,312 LLM calls**. One Core-accounted LLM call is one completed provider response recorded by the Solver or a bounded Core model stage. Shell commands, tool calls, deterministic Core transitions, and transport attempts that produced no model response are excluded. Successful tasks tended to converge earlier, whereas unsuccessful tasks consumed roughly 4.2 times as much elapsed time and 3.1 times as many tokens and LLM calls on average. These are descriptive measurements of completed task lifecycles, not configured limits.
+
+### 4.5 Observed Memory State
+
+Every terminal task retained a non-empty typed Memory snapshot. The figures below describe the final retained state, not the cumulative number of intermediate writes or transcript messages.
+
+| Final Memory measure | Mean | Median | P90 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Routes per task | 2.62 | 2 | 5 | 13 |
+| Ledger cells per task | 17.46 | 12 | 37.4 | 126 |
+| Retained conclusions per task | 7.82 | 7 | 12 | 71 |
+| Ledger cells per route | 6.65 | 8 | 11 | 11 |
+
+The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Not-passed tasks retained more unresolved state: 35.65 ledger cells and 4.04 routes on average, compared with 14.82 cells and 2.42 routes for passed tasks.
+
+| Final ledger status | Cells | Share |
+| --- | ---: | ---: |
+| Hypothesis | 6,915 | 26.28% |
+| Source-backed | 10,217 | 38.83% |
+| Artifact encoded | 514 | 1.95% |
+| Runtime observed | 7,721 | 29.35% |
+| Contradicted | 943 | 3.58% |
+
+Memory recovery remained exceptional rather than continuous: 251 tasks (16.66%) invoked the bounded reviewer, producing 308 review events; 57 tasks (3.78%) used the second permitted review. Recovery reviews accounted for 2,758 LLM calls (0.87% of all calls) and 97.21M tokens (0.86% of all Core-accounted tokens).
+
+### 4.6 Representative Cases
 
 These two tasks were chosen for contrast, not just difficulty. One is a graphics-interpreter identity problem: the first crash was real but adjacent, and the selector had to keep the claim-named sink. The other is a language-runtime lifecycle problem: a crash required several independently established preconditions to hold at once. Both used the second-PoC search and an isolated final selector. The diagrams omit reusable trigger bytes.
 
