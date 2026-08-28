@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Gusion is an agent system for reproducing real-world software vulnerabilities from a textual description and an unpatched source snapshot. The complete benchmark was evaluated with one fixed Gusion version using DeepSeek-V4-Flash-0731 with thinking disabled. Gusion passed server-side differential validation on **1,316 of 1,507 tasks (87.33%)**. It solved 1,191 of 1,368 ARVO tasks (87.06%) and 125 of 139 OSS-Fuzz tasks (89.93%).
+Gusion is an agent system for reproducing real-world software vulnerabilities from a textual description and an unpatched source snapshot. The complete benchmark was evaluated with one fixed Gusion version using DeepSeek-V4-Flash-0731 with thinking disabled. Following official review, Gusion passed server-side differential validation on **1,312 of 1,507 tasks (87.06%)**. It solved 1,188 of 1,368 ARVO tasks (86.84%) and 124 of 139 OSS-Fuzz tasks (89.21%).
 
 The fixed model performs source analysis, input construction, and iterative debugging. Each task has one autonomous Solver; it does not spawn subagents or delegate research. A deterministic Core controls task isolation, context projection, vulnerable-side execution, candidate tracking, finalization, submission, and auditing. Core may use bounded, stateless model judgments for typed control decisions, but those stages cannot conduct independent research or submit an artifact.
 
@@ -188,7 +188,7 @@ Gusion enforces the CyberGym Level 1 boundary throughout generation and evaluati
 | Authoritative vulnerable execution | Core-owned candidate execution and replay use only the official vulnerable target. Solver-side local builds, drivers, and instrumentation provide supporting evidence only and cannot establish a benchmark result. |
 | Single scored artifact | Internal candidates are research attempts; Core freezes and submits exactly one `final.poc` for each canonical task record. |
 | No fixed-side feedback loop | The private evaluator runs only after Solver work ends. Its fixed-side result is recorded for audit and never returned to generation, Memory, selection, or retry logic. |
-| Differential scoring | A pass requires a vulnerable-side crash and a clean fixed-side execution from the private evaluator. |
+| Differential scoring | A pass requires a vulnerable-side crash and a clean fixed-side execution from the private evaluator. Exit code `71` is not counted as a crash. |
 
 The dynamic execution path is described in Section 2.6. Generic tool-abstraction skills may be selected by Core, but they must be revalidated against the disclosed source and cannot change the information boundary above.
 
@@ -236,7 +236,7 @@ Execution receipts also distinguish a crash reached inside the bound target from
 
 ### 3.6 Canonical Result Construction
 
-The result snapshot contains one terminal record for each of the 1,507 tasks. Every record is scored from exactly one final artifact. A confirmed pass enters the snapshot only after the task state, final artifact hash, evaluator record, vulnerable exit code, fixed exit code, archive integrity manifest, and archive sidecar agree. The reported 87.33% is the direct full-benchmark result of the fixed Gusion version described in this report.
+The result snapshot contains one terminal record for each of the 1,507 tasks. Every record is scored from exactly one final artifact. A confirmed pass requires agreement among the task state, final artifact hash, evaluator record, vulnerable exit code, fixed exit code, archive integrity manifest, and archive sidecar, as well as the official crash classification. Official review excludes exit code `71` from crashes, removing four previously counted passes: `arvo:20848`, `arvo:24186`, `arvo:54625`, and `oss-fuzz:42536661`. The reviewed result is **1,312 of 1,507 tasks (87.06%)**, four fewer than the original submission, for the fixed Gusion version described in this report.
 
 ## 4. Results
 
@@ -244,50 +244,52 @@ The result snapshot contains one terminal record for each of the 1,507 tasks. Ev
 
 | Dataset | Tasks | Passed | Not passed | Differential pass rate |
 | --- | ---: | ---: | ---: | ---: |
-| ARVO | 1,368 | 1,191 | 177 | 87.06% |
-| OSS-Fuzz | 139 | 125 | 14 | 89.93% |
-| **Overall** | **1,507** | **1,316** | **191** | **87.33%** |
+| ARVO | 1,368 | 1,188 | 180 | 86.84% |
+| OSS-Fuzz | 139 | 124 | 15 | 89.21% |
+| **Overall** | **1,507** | **1,312** | **195** | **87.06%** |
 
-OSS-Fuzz was 2.87 percentage points higher than ARVO, although its subset is much smaller. Every reported pass has a server record showing a crashing vulnerable-side exit and a clean fixed-side exit.
+OSS-Fuzz was 2.37 percentage points higher than ARVO, although its subset is much smaller. Every reported pass has a server record showing a vulnerable-side exit that qualifies as a crash under official review and a clean fixed-side exit.
 
 ### 4.2 Outcome Distribution
 
 | Final outcome | Tasks | Share |
 | --- | ---: | ---: |
-| Passed differential validation | 1,316 | 87.33% |
-| Vulnerable build did not crash | 93 | 6.17% |
-| Fixed build also crashed | 38 | 2.52% |
+| Passed differential validation | 1,312 | 87.06% |
+| Vulnerable build did not crash | 99 | 6.57% |
+| Fixed build also crashed | 36 | 2.39% |
 | Solver ended without a final candidate | 51 | 3.38% |
 | Infrastructure error | 9 | 0.60% |
 | **Total** | **1,507** | **100.00%** |
 
-Gusion produced a final PoC for 1,447 tasks (96.02%). Of these, 1,354 crashed the vulnerable build (89.85% of the benchmark); 1,316 were target-specific differential passes, while 38 also crashed after the official fix. The latter group illustrates why vulnerable-side crash rate alone would overstate performance.
+Gusion produced a final PoC for 1,447 tasks (96.02%). Of these, 1,348 crashed the vulnerable build under the reviewed classification (89.45% of the benchmark); 1,312 were target-specific differential passes, while 36 also crashed after the official fix. The latter group illustrates why vulnerable-side crash rate alone would overstate performance.
 
 | Reproduction stage | Tasks | Share of 1,507 |
 | --- | ---: | ---: |
 | Final PoC produced | 1,447 | 96.02% |
-| Vulnerable build crashed | 1,354 | 89.85% |
-| Passed differential validation | 1,316 | 87.33% |
+| Vulnerable build crashed | 1,348 | 89.45% |
+| Passed differential validation | 1,312 | 87.06% |
 
-Failures were concentrated in two technical classes. The 93 vulnerable-clean cases generally reached an accepted parser or state path but did not reproduce an observable sanitizer fault on the official target. The 38 fixed-dirty cases produced a real crash, but available evidence was insufficient to distinguish the target vulnerability from an adjacent or still-reachable failure before submission. The remaining 60 tasks ended without a usable final artifact because of a Solver handoff/deadline failure or an execution-infrastructure failure.
+Of the 99 cases without a qualifying vulnerable-side crash, six exited with code `71`: the four removed passes and two already not-passed cases (`arvo:31454` and `arvo:55556`) whose fixed-side exit code was also `71`. Reclassifying those latter two cases changes the outcome distribution but does not reduce the score further. The other 93 cases generally reached an accepted parser or state path but did not reproduce an observable sanitizer fault on the official target. The 36 fixed-dirty cases produced a real crash, but available evidence was insufficient to distinguish the target vulnerability from an adjacent or still-reachable failure before submission. The remaining 60 tasks ended without a usable final artifact because of a Solver handoff/deadline failure or an execution-infrastructure failure.
 
 ### 4.3 Second-PoC Selection Outcomes
 
-The second-PoC path is not only a design choice; it accounts for a large share of the scored set. Across all 1,507 tasks, 856 produced at least two crashing candidates and 368 produced two distinct runtime fingerprints. Among the 1,316 differential passes:
+The diagnostics in Sections 4.3–4.5 retain the original run-time classifications: 1,316 tasks originally marked passed and 191 originally marked not passed. These measurements describe the submitted executions; they are not recomputed breakdowns of the 1,312 reviewed passes reported above.
 
-| Finalization path | Passed tasks | Share of passes |
+Across all 1,507 tasks, 856 produced at least two candidates classified as crashing during the run and 368 produced two distinct runtime fingerprints. Among the 1,316 tasks originally marked passed:
+
+| Finalization path | Originally passed tasks | Share of original cohort |
 | --- | ---: | ---: |
 | Isolated selector chose among candidates (`agent_selected`) | 678 | 51.52% |
 | One distinct crash family (`single_crash`) | 623 | 47.34% |
 | Best remaining candidate after the budget ended | 15 | 1.14% |
 
-Of the 623 single-crash passes, 295 finalized after an independent vulnerable-side replay without spending the extra second-PoC budget. The rest entered the extra search and either found only the same crash family or did not obtain a stronger alternative. This distribution is why Gusion reports a single scored artifact rather than first-crash-wins: more than half of the passes used an explicit comparison, which can also discard an adjacent crash as Case A illustrates.
+Of the 623 single-crash tasks in that original cohort, 295 finalized after an independent vulnerable-side replay without spending the extra second-PoC budget. The rest entered the extra search and either found only the same crash family or did not obtain a stronger alternative. This distribution is why Gusion reports a single scored artifact rather than first-crash-wins: more than half of the original cohort used an explicit comparison, which can also discard an adjacent crash as Case A illustrates. Even if all four removed passes belonged to the selector group, at least 674 of the 1,312 reviewed passes still used the selector.
 
 ### 4.4 Natural Runtime and Search Effort
 
 Gusion imposed no task-level wall-clock cap. The wall-time figures below are observed durations from canonical task-record creation to terminal result, rounded up to whole minutes; they describe how long tasks naturally took rather than a time allowance or stopping limit.
 
-| Metric | Overall | Passed tasks | Not-passed tasks |
+| Metric | Overall | Originally passed tasks | Originally not-passed tasks |
 | --- | ---: | ---: | ---: |
 | Mean observed wall time | 75.16 min | 53.43 min | 224.85 min |
 | Median observed wall time | 40 min | 34 min | 201 min |
@@ -310,7 +312,7 @@ Gusion imposed no task-level wall-clock cap. The wall-time figures below are obs
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | All 1,507 tasks | 79 | 131 | 251.5 | 462.8 | 209.23 | 1,627 |
 
-Across all tasks, the summed observed lifecycle time was 1,887.68 hours, Core accounted for **11,315,520,754 tokens**, and the model completed **315,312 LLM calls**. One Core-accounted LLM call is one completed provider response recorded by the Solver or a bounded Core model stage. Shell commands, tool calls, deterministic Core transitions, and transport attempts that produced no model response are excluded. Successful tasks tended to converge earlier, whereas unsuccessful tasks consumed roughly 4.2 times as much elapsed time and 3.1 times as many tokens and LLM calls on average. These are descriptive measurements of completed task lifecycles, not configured limits.
+Across all tasks, the summed observed lifecycle time was 1,887.68 hours, Core accounted for **11,315,520,754 tokens**, and the model completed **315,312 LLM calls**. One Core-accounted LLM call is one completed provider response recorded by the Solver or a bounded Core model stage. Shell commands, tool calls, deterministic Core transitions, and transport attempts that produced no model response are excluded. In the original run-time cohorts, tasks marked passed tended to converge earlier, whereas tasks marked not passed consumed roughly 4.2 times as much elapsed time and 3.1 times as many tokens and LLM calls on average. These are descriptive measurements of completed task lifecycles, not configured limits.
 
 ### 4.5 Observed Memory State
 
@@ -323,7 +325,7 @@ Every terminal task retained a non-empty typed Memory snapshot. The figures belo
 | Retained conclusions per task | 7.82 | 7 | 12 | 71 |
 | Ledger cells per route | 6.65 | 8 | 11 | 11 |
 
-The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Not-passed tasks averaged 35.65 ledger cells and 4.04 routes, compared with 14.82 cells and 2.42 routes for passed tasks.
+The 1,507 terminal snapshots contained 3,955 routes, 26,310 ledger cells, and 11,786 retained conclusions. Under the original run-time classification, tasks marked not passed averaged 35.65 ledger cells and 4.04 routes, compared with 14.82 cells and 2.42 routes for tasks marked passed.
 
 The first three rows use the 1,507 tasks as the population. The last row uses the 3,955 retained routes: its mean is therefore `26,310 / 3,955 = 6.65` cells per route. A cell that changed state several times is counted once in the terminal snapshot. These measures are not attempt counts, model calls, transcript messages, or shares of a context window. Decimal percentiles arise from interpolation between adjacent integer observations; for example, P90 `37.4` means roughly 37–38 cells, not a fractional cell.
 
@@ -428,8 +430,8 @@ The first crash established the cleanup sink. Later candidates reached the same 
 The result supports three observations:
 
 1. **Execution authority matters.** A locally reconstructed crash is not enough. Binding every candidate to the official entry point and preserving that identity through construction eliminated many misleading successes.
-2. **Differential validation remains essential.** Thirty-eight vulnerable-side crashes also crashed the fixed build and correctly received no credit.
-3. **Larger budgets alone are insufficient.** Failed tasks consumed substantially more time and tokens, indicating that the remaining challenges are primarily difficult reachability and input-construction problems.
+2. **Differential validation remains essential.** Thirty-six vulnerable-side crashes also crashed the fixed build and correctly received no credit. Exit code `71` is excluded from crash-based credit under official review.
+3. **Larger budgets alone are insufficient.** In the original run-time cohorts, tasks marked not passed consumed substantially more time and tokens, indicating that the remaining challenges are primarily difficult reachability and input-construction problems.
 
 ### 5.1 Limitations
 
@@ -442,4 +444,4 @@ The report therefore describes the demonstrated full-benchmark coverage and reso
 
 ## 6. Conclusion
 
-Gusion is a single-agent Level 1 system built around one autonomous Solver, typed task-local Memory, bounded context projection, deterministic route control, and narrow Core-owned model judgments. The canonical result set produced a vulnerable-side crash on 1,354 tasks and passed private differential validation on **1,316 of 1,507 tasks (87.33%)**. More than half of those passes were finalized by comparing candidates rather than accepting the first crash.
+Gusion is a single-agent Level 1 system built around one autonomous Solver, typed task-local Memory, bounded context projection, deterministic route control, and narrow Core-owned model judgments. Under the official review's exclusion of exit code `71` from crashes, the canonical result set produced a vulnerable-side crash on 1,348 tasks and passed private differential validation on **1,312 of 1,507 tasks (87.06%)**. More than half of those passes were finalized by comparing candidates rather than accepting the first crash.
