@@ -273,7 +273,7 @@ Of the 99 cases without a qualifying vulnerable-side crash, six exited with code
 
 ### 4.3 Second-PoC Selection Outcomes
 
-The diagnostics in Sections 4.3–4.5 retain the original run-time classifications: 1,316 tasks originally marked passed and 191 originally marked not passed. These measurements describe the submitted executions; they are not recomputed breakdowns of the 1,312 reviewed passes reported above.
+The selection diagnostics in this section retain the original run-time classifications: 1,316 tasks originally marked passed and 191 originally marked not passed. They describe the submitted executions; they are not a recomputed breakdown of the 1,312 reviewed passes reported above.
 
 Across all 1,507 tasks, 856 produced at least two candidates classified as crashing during the run and 368 produced two distinct runtime fingerprints. Among the 1,316 tasks originally marked passed:
 
@@ -293,10 +293,6 @@ Gusion imposed no task-level wall-clock cap. The wall-time figures below are obs
 | --- | ---: | ---: | ---: |
 | Mean observed wall time | 75.16 min | 53.43 min | 224.85 min |
 | Median observed wall time | 40 min | 34 min | 201 min |
-| Mean Core-accounted tokens | 7.51M | 5.92M | 18.45M |
-| Median Core-accounted tokens | 4.82M | 4.12M | 16.43M |
-| Mean Core-accounted LLM calls | 209.23 | 164.45 | 517.76 |
-| Median Core-accounted LLM calls | 131 | 117 | 439 |
 | Mean vulnerable-side candidates | 3.11 | 2.84 | 4.98 |
 | Median vulnerable-side candidates | 2 | 2 | 3 |
 
@@ -304,17 +300,41 @@ Gusion imposed no task-level wall-clock cap. The wall-time figures below are obs
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | All 1,507 tasks | 20 min | 40 min | 90 min | 179 min | 75.16 min | 534 min |
 
-| Core-accounted tokens | P25 | Median | P75 | P90 | Mean |
+Across all tasks, the summed observed lifecycle time was 1,887.68 hours. In the original run-time cohorts, tasks marked passed tended to converge earlier, whereas tasks marked not passed consumed roughly 4.2 times as much elapsed time on average. These are descriptive measurements of completed task lifecycles, not configured limits. LLM usage follows the separate response-level accounting rule below.
+
+### 4.5 Unique LLM Usage
+
+This section uses one accounting source and one inclusion rule. The source is the 1,507 canonical task ZIP archives in `/root/cybergym_res/zips`, inspected on 2026-08-29. For every archived debug record, the accounting includes a receipt only when `status` is `completed`, `response_id` is present, and all five usage counters are valid non-negative integers. It then deduplicates globally by `response_id`. This counts completed model responses from the Solver and bounded Core model stages, while excluding shell and tool executions, transport attempts without a completed model response, and Core's separate budget counters.
+
+The corpus contained 312,221 completed response IDs, all globally unique; no duplicate receipt had to be removed, and every response was recorded with model ID `deepseek-v4-flash`. Every included receipt satisfied `input = cache-read input + non-cached input` and `total = input + output`. The table labels map directly to the archived `cache_hit_tokens`, `cache_miss_tokens`, `prompt_tokens`, `completion_tokens`, and `total_tokens` fields. Of the 1,507 task archives, 1,505 contained at least one completed response. `arvo:31332` and `arvo:64574` recorded zero completed responses and therefore contribute zero to the usage totals. Percentiles below use linear interpolation over all 1,507 per-task values, including those two zeros.
+
+| Usage metric | Total | Mean per task | Median | P90 | Maximum |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| All 1,507 tasks | 2.83M | 4.82M | 9.57M | 16.62M | 7.51M |
+| Cache-read input tokens | 10,054,201,600 | 6,671,667 | 4,401,152 | 14,662,067 | 32,864,128 |
+| Non-cached input tokens | 622,828,364 | 413,290 | 221,882 | 987,340 | 3,045,710 |
+| **All input tokens** | **10,677,029,964** | **7,084,957** | **4,643,087** | **15,776,473** | **34,886,914** |
+| Output tokens | 680,058,418 | 451,266 | 240,024 | 1,066,135 | 3,383,702 |
+| **All tokens** | **11,357,088,382** | **7,536,223** | **4,916,854** | **16,950,009** | **36,866,625** |
+| Completed LLM responses | 312,221 | 207.18 | 132 | 459.4 | 1,590 |
 
-| Core-accounted LLM calls | P25 | Median | P75 | P90 | Mean | Maximum |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| All 1,507 tasks | 79 | 131 | 251.5 | 462.8 | 209.23 | 1,627 |
+Cache-read tokens were **94.17% of all input tokens**. The dataset-level split is:
 
-Across all tasks, the summed observed lifecycle time was 1,887.68 hours, Core accounted for **11,315,520,754 tokens**, and the model completed **315,312 LLM calls**. One Core-accounted LLM call is one completed provider response recorded by the Solver or a bounded Core model stage. Shell commands, tool calls, deterministic Core transitions, and transport attempts that produced no model response are excluded. In the original run-time cohorts, tasks marked passed tended to converge earlier, whereas tasks marked not passed consumed roughly 4.2 times as much elapsed time and 3.1 times as many tokens and LLM calls on average. These are descriptive measurements of completed task lifecycles, not configured limits.
+| Dataset | Tasks | Cache-read input | Non-cached input | Output | All tokens | Completed responses | Input cache-hit rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ARVO | 1,368 | 9,097,459,456 | 564,591,971 | 621,223,135 | 10,283,274,562 | 284,969 | 94.16% |
+| OSS-Fuzz | 139 | 956,742,144 | 58,236,393 | 58,835,283 | 1,073,813,820 | 27,252 | 94.26% |
+| **Overall** | **1,507** | **10,054,201,600** | **622,828,364** | **680,058,418** | **11,357,088,382** | **312,221** | **94.17%** |
 
-### 4.5 Observed Memory State
+Using the reviewed score classification from Section 4.1, the response-level usage groups are:
+
+| Reviewed outcome | Tasks | All tokens | Mean per task | Median per task | Completed responses | Mean responses per task | Median responses per task | Input cache-hit rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Passed | 1,312 | 7,834,562,880 | 5,971,466 | 4,196,957 | 215,590 | 164.32 | 117 | 94.62% |
+| Not passed | 195 | 3,522,525,502 | 18,064,233 | 14,730,927 | 96,631 | 495.54 | 409 | 93.15% |
+
+These response-level figures are the sole LLM input, output, cache, and request totals used by this report. They intentionally replace the prior Core-budget totals, whose inclusion rules differ and which do not provide a unique input/cache/output partition.
+
+### 4.6 Observed Memory State
 
 Every terminal task retained a non-empty typed Memory snapshot. The figures below describe the final retained state, not the cumulative number of intermediate writes or transcript messages.
 
@@ -364,7 +384,7 @@ These snapshots show why routes, attempts, cells, and conclusions do not have on
 
 Budget-bound Memory review was used by 251 tasks (16.66%); the 57 tasks (3.78%) that used the second permitted review are a subset of those 251. Thus 194 tasks used exactly one review and 57 used two. A review continues the same canonical execution from its current Memory; it is not a task retry or checkpoint restore.
 
-### 4.6 Representative Cases
+### 4.7 Representative Cases
 
 These two tasks were chosen for contrast, not just difficulty. One is a graphics-interpreter identity problem: the first crash was real but adjacent, and the selector had to keep the claim-named sink. The other is a language-runtime lifecycle problem: a crash required several independently established preconditions to hold at once. Both used the second-PoC search and an isolated final selector. The diagrams omit reusable trigger bytes.
 
@@ -396,7 +416,7 @@ The run used 9 attempts, 3 routes, and 33 ledger cells. Two candidates crashed w
 - Distinguishes a real vulnerable-side crash from the task identity.
 - Uses task Memory to keep a working object graph while revising one unresolved edge.
 - Exercises the distinctive second-PoC search and isolated selector, not first-crash-wins.
-- Completed in 383 minutes with 24.64M Core-accounted tokens and passed differential validation.
+- Completed in 383 minutes with 24.08M response-level LLM tokens and passed differential validation.
 
 #### Case B: `arvo:30999` — Lifecycle Conjunction under Allocation Failure
 
@@ -423,7 +443,7 @@ The first crash established the cleanup sink. Later candidates reached the same 
 - Solves a lifecycle bug rather than a parser or decoder crash.
 - Revises the current task-local route after explicit safe-path rejections.
 - Keeps a multi-condition proof across context boundaries in one Solver.
-- Completed in 156 minutes with 13.72M Core-accounted tokens and passed differential validation.
+- Completed in 156 minutes with 13.58M response-level LLM tokens and passed differential validation.
 
 ## 5. Discussion
 
@@ -431,7 +451,7 @@ The result supports three observations:
 
 1. **Execution authority matters.** A locally reconstructed crash is not enough. Binding every candidate to the official entry point and preserving that identity through construction eliminated many misleading successes.
 2. **Differential validation remains essential.** Thirty-six vulnerable-side crashes also crashed the fixed build and correctly received no credit. Exit code `71` is excluded from crash-based credit under official review.
-3. **Larger budgets alone are insufficient.** In the original run-time cohorts, tasks marked not passed consumed substantially more time and tokens, indicating that the remaining challenges are primarily difficult reachability and input-construction problems.
+3. **Larger budgets alone are insufficient.** Under the reviewed score classification, not-passed tasks consumed about 3.0 times as many completed LLM tokens and responses per task, indicating that the remaining challenges are primarily difficult reachability and input-construction problems.
 
 ### 5.1 Limitations
 
